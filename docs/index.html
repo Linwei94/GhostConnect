@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GhostConnect — Ghostty Session Launcher</title>
+    <style>
+        /* Catppuccin Mocha */
+        :root {
+            --base: #1e1e2e;
+            --mantle: #181825;
+            --crust: #11111b;
+            --surface0: #313244;
+            --surface1: #45475a;
+            --surface2: #585b70;
+            --overlay0: #6c7086;
+            --text: #cdd6f4;
+            --subtext0: #a6adc8;
+            --lavender: #b4befe;
+            --mauve: #cba6f7;
+            --green: #a6e3a1;
+            --red: #f38ba8;
+            --peach: #fab387;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: var(--crust);
+            color: var(--text);
+            font-family: 'Menlo', 'Courier New', monospace;
+            overflow-x: hidden;
+        }
+
+        /* Scanline overlay */
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: repeating-linear-gradient(
+                transparent, transparent 1px,
+                rgba(0,0,0,0.03) 1px, rgba(0,0,0,0.03) 2px
+            );
+            pointer-events: none;
+            z-index: 1000;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        /* Nav */
+        nav {
+            padding: 20px 0;
+            border-bottom: 1px solid var(--surface0);
+        }
+        nav .container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        nav a {
+            color: var(--subtext0);
+            text-decoration: none;
+            font-size: 13px;
+            transition: color 0.2s;
+        }
+        nav a:hover { color: var(--lavender); }
+        .nav-brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .nav-brand span {
+            font-size: 14px;
+            font-weight: bold;
+            color: var(--text);
+        }
+
+        /* Hero */
+        .hero {
+            text-align: center;
+            padding: 80px 0 60px;
+        }
+
+        .ghost-container {
+            display: inline-block;
+            animation: float 3s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-12px); }
+        }
+
+        .pixel-ghost {
+            display: grid;
+            grid-template-columns: repeat(12, 6px);
+            grid-template-rows: repeat(13, 6px);
+            gap: 0;
+            margin: 0 auto;
+            image-rendering: pixelated;
+        }
+        .pixel-ghost .p { background: var(--mauve); }
+        .pixel-ghost .e { background: white; }
+        .pixel-ghost .d { background: var(--base); }
+        .pixel-ghost .n { background: transparent; }
+
+        .hero h1 {
+            font-size: 42px;
+            font-weight: bold;
+            color: var(--lavender);
+            letter-spacing: 6px;
+            margin-top: 32px;
+            margin-bottom: 12px;
+        }
+
+        .hero .tagline {
+            font-size: 16px;
+            color: var(--subtext0);
+            margin-bottom: 36px;
+        }
+
+        .hero-buttons {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 28px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: bold;
+            font-family: 'Menlo', monospace;
+            transition: transform 0.15s, opacity 0.15s;
+        }
+        .btn:hover { transform: scale(1.03); }
+        .btn:active { transform: scale(0.97); }
+
+        .btn-primary {
+            background: var(--green);
+            color: var(--base);
+        }
+        .btn-secondary {
+            background: var(--surface0);
+            color: var(--text);
+            border: 1px solid var(--surface1);
+        }
+
+        /* Mockup Section */
+        .mockup-section {
+            padding: 60px 0;
+        }
+
+        .mockup-wrapper {
+            display: flex;
+            justify-content: center;
+            gap: 60px;
+            align-items: flex-start;
+            flex-wrap: wrap;
+        }
+
+        .mockup-panel {
+            width: 300px;
+            background: var(--base);
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+            border: 1px solid var(--surface0);
+        }
+
+        .mockup-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--surface0);
+        }
+
+        .mockup-mini-ghost {
+            display: grid;
+            grid-template-columns: repeat(8, 3px);
+            grid-template-rows: repeat(8, 3px);
+        }
+        .mockup-mini-ghost .p { background: var(--mauve); }
+        .mockup-mini-ghost .n { background: transparent; }
+
+        .mockup-title {
+            font-size: 13px;
+            font-weight: bold;
+            color: var(--text);
+        }
+
+        .mockup-auto {
+            margin-left: auto;
+            font-size: 10px;
+            color: var(--subtext0);
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .mockup-auto .dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: var(--green);
+        }
+
+        .mockup-section-label {
+            font-size: 9px;
+            font-weight: bold;
+            color: var(--overlay0);
+            letter-spacing: 1.5px;
+            padding: 10px 14px 4px;
+        }
+
+        .mockup-server {
+            margin: 0 14px;
+            padding: 6px 10px;
+            background: var(--surface0);
+            border-radius: 5px;
+            font-size: 12px;
+            color: var(--text);
+            display: flex;
+            justify-content: space-between;
+        }
+        .mockup-server .chevron {
+            color: var(--overlay0);
+            font-size: 8px;
+        }
+
+        .mockup-sessions {
+            padding: 4px 14px 8px;
+        }
+        .mockup-session-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 3px;
+        }
+        .mockup-session-num {
+            font-size: 9px;
+            color: var(--overlay0);
+            width: 12px;
+        }
+        .mockup-session-input {
+            flex: 1;
+            padding: 5px 8px;
+            background: var(--surface0);
+            border-radius: 5px;
+            font-size: 12px;
+            color: var(--text);
+        }
+
+        .mockup-bottom {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 14px 12px;
+            border-top: 1px solid var(--surface0);
+            margin-top: 4px;
+        }
+        .mockup-launch {
+            padding: 6px 14px;
+            background: var(--green);
+            color: var(--base);
+            border-radius: 5px;
+            font-size: 11px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .mockup-quit {
+            font-size: 10px;
+            color: var(--overlay0);
+        }
+
+        /* Menu bar mockup */
+        .menubar-mockup {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .menubar-strip {
+            display: inline-flex;
+            align-items: center;
+            gap: 16px;
+            background: rgba(255,255,255,0.08);
+            padding: 6px 20px;
+            border-radius: 6px;
+            font-size: 12px;
+            color: var(--subtext0);
+        }
+        .menubar-ghost {
+            color: var(--mauve);
+            font-weight: bold;
+        }
+        .menubar-arrow {
+            width: 0; height: 0;
+            border-left: 8px solid transparent;
+            border-right: 8px solid transparent;
+            border-top: 8px solid var(--surface0);
+            margin: 8px auto 0;
+        }
+
+        /* Ghostty terminal mockup */
+        .terminal-mockup {
+            width: 480px;
+            background: var(--base);
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+            border: 1px solid var(--surface0);
+        }
+        .terminal-titlebar {
+            background: var(--mantle);
+            padding: 10px 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .terminal-dots {
+            display: flex;
+            gap: 6px;
+        }
+        .terminal-dots span {
+            width: 12px; height: 12px;
+            border-radius: 50%;
+        }
+        .terminal-dots .r { background: #ff5f57; }
+        .terminal-dots .y { background: #febc2e; }
+        .terminal-dots .g { background: #28c840; }
+
+        .terminal-tabs {
+            display: flex;
+            margin-left: 16px;
+            gap: 2px;
+        }
+        .terminal-tab {
+            padding: 4px 16px;
+            border-radius: 5px 5px 0 0;
+            font-size: 11px;
+            color: var(--subtext0);
+            background: var(--surface0);
+        }
+        .terminal-tab.active {
+            background: var(--base);
+            color: var(--mauve);
+        }
+
+        .terminal-body {
+            padding: 16px;
+            font-size: 13px;
+            line-height: 1.6;
+            min-height: 180px;
+        }
+        .terminal-body .prompt {
+            color: var(--green);
+        }
+        .terminal-body .cmd {
+            color: var(--text);
+        }
+        .terminal-body .output {
+            color: var(--subtext0);
+        }
+        .terminal-body .cursor {
+            display: inline-block;
+            width: 8px;
+            height: 16px;
+            background: var(--text);
+            animation: blink 1s step-end infinite;
+            vertical-align: text-bottom;
+        }
+
+        @keyframes blink {
+            50% { opacity: 0; }
+        }
+
+        /* Features */
+        .features {
+            padding: 60px 0;
+        }
+
+        .features h2 {
+            font-size: 28px;
+            color: var(--lavender);
+            letter-spacing: 4px;
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+        }
+
+        .feature-card {
+            background: var(--base);
+            border: 1px solid var(--surface0);
+            border-radius: 8px;
+            padding: 20px;
+            transition: border-color 0.2s;
+        }
+        .feature-card:hover {
+            border-color: var(--surface2);
+        }
+        .feature-card .icon {
+            font-size: 20px;
+            margin-bottom: 10px;
+        }
+        .feature-card h3 {
+            font-size: 14px;
+            color: var(--text);
+            margin-bottom: 6px;
+        }
+        .feature-card p {
+            font-size: 12px;
+            color: var(--subtext0);
+            line-height: 1.5;
+        }
+
+        /* Install */
+        .install {
+            padding: 60px 0;
+        }
+        .install h2 {
+            font-size: 28px;
+            color: var(--lavender);
+            letter-spacing: 4px;
+            text-align: center;
+            margin-bottom: 32px;
+        }
+        .code-block {
+            background: var(--base);
+            border: 1px solid var(--surface0);
+            border-radius: 8px;
+            padding: 20px;
+            max-width: 600px;
+            margin: 0 auto;
+            overflow-x: auto;
+        }
+        .code-block code {
+            font-size: 13px;
+            line-height: 1.7;
+            color: var(--text);
+        }
+        .code-block .comment { color: var(--overlay0); }
+        .code-block .cmd-prefix { color: var(--green); }
+
+        /* Footer */
+        footer {
+            padding: 32px 0;
+            border-top: 1px solid var(--surface0);
+            text-align: center;
+            font-size: 12px;
+            color: var(--overlay0);
+        }
+        footer a {
+            color: var(--lavender);
+            text-decoration: none;
+        }
+        footer a:hover { text-decoration: underline; }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .hero h1 { font-size: 28px; letter-spacing: 3px; }
+            .mockup-wrapper { flex-direction: column; align-items: center; }
+            .terminal-mockup { width: 100%; max-width: 480px; }
+        }
+    </style>
+</head>
+<body>
+
+<nav>
+    <div class="container">
+        <div class="nav-brand">
+            <span>GhostConnect</span>
+        </div>
+        <div>
+            <a href="https://github.com/Linwei94/GhostConnect">GitHub</a>
+        </div>
+    </div>
+</nav>
+
+<section class="hero">
+    <div class="container">
+        <div class="ghost-container">
+            <div class="pixel-ghost" id="ghost"></div>
+        </div>
+
+        <h1>GHOST CONNECT</h1>
+        <p class="tagline">A macOS menu bar app for launching Ghostty + SSH + tmux sessions</p>
+
+        <div class="hero-buttons">
+            <a href="https://github.com/Linwei94/GhostConnect#install" class="btn btn-primary">
+                &#9654; Install
+            </a>
+            <a href="https://github.com/Linwei94/GhostConnect" class="btn btn-secondary">
+                View on GitHub
+            </a>
+        </div>
+    </div>
+</section>
+
+<section class="mockup-section">
+    <div class="container">
+        <div class="mockup-wrapper">
+            <!-- Left: Panel mockup -->
+            <div>
+                <div class="menubar-mockup">
+                    <div class="menubar-strip">
+                        <span>Wi-Fi</span>
+                        <span>Battery</span>
+                        <span class="menubar-ghost">&#x25A0;&#x25A0;</span>
+                        <span>3:42 PM</span>
+                    </div>
+                    <div class="menubar-arrow"></div>
+                </div>
+                <div class="mockup-panel">
+                    <div class="mockup-header">
+                        <div class="mockup-mini-ghost" id="mini-ghost"></div>
+                        <span class="mockup-title">Ghost Connect</span>
+                        <span class="mockup-auto"><span class="dot"></span> Auto Start</span>
+                    </div>
+                    <div class="mockup-section-label">SERVER</div>
+                    <div class="mockup-server">
+                        <span>linwei-lab2</span>
+                        <span class="chevron">&#x25B2;&#x25BC;</span>
+                    </div>
+                    <div class="mockup-section-label">SESSIONS</div>
+                    <div class="mockup-sessions">
+                        <div class="mockup-session-row">
+                            <span class="mockup-session-num">1</span>
+                            <span class="mockup-session-input">research</span>
+                        </div>
+                        <div class="mockup-session-row">
+                            <span class="mockup-session-num">2</span>
+                            <span class="mockup-session-input">research-2</span>
+                        </div>
+                        <div class="mockup-session-row">
+                            <span class="mockup-session-num">3</span>
+                            <span class="mockup-session-input">projects</span>
+                        </div>
+                    </div>
+                    <div class="mockup-bottom">
+                        <div class="mockup-launch">&#9654; Launch</div>
+                        <span class="mockup-quit">Quit</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: Terminal mockup -->
+            <div class="terminal-mockup">
+                <div class="terminal-titlebar">
+                    <div class="terminal-dots">
+                        <span class="r"></span>
+                        <span class="y"></span>
+                        <span class="g"></span>
+                    </div>
+                    <div class="terminal-tabs">
+                        <div class="terminal-tab active">research</div>
+                        <div class="terminal-tab">research-2</div>
+                        <div class="terminal-tab">projects</div>
+                    </div>
+                </div>
+                <div class="terminal-body">
+                    <span class="output">Connecting to linwei-lab2...</span><br>
+                    <span class="output">tmux attached: research</span><br><br>
+                    <span class="prompt">lwtao@linwei-lab2</span> <span class="cmd">~/experiments $</span> <span class="cursor"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="features">
+    <div class="container">
+        <h2>FEATURES</h2>
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="icon">&#x1F47B;</div>
+                <h3>Menu Bar Native</h3>
+                <p>Lives as a pixel ghost in your macOS menu bar. Click to configure, launch, done. No Dock clutter.</p>
+            </div>
+            <div class="feature-card">
+                <div class="icon">&#x1F4CB;</div>
+                <h3>Auto SSH Config</h3>
+                <p>Reads your ~/.ssh/config automatically. All your servers in a dropdown, ready to go.</p>
+            </div>
+            <div class="feature-card">
+                <div class="icon">&#x1F4BB;</div>
+                <h3>Multi-Tab Launch</h3>
+                <p>Opens a new Ghostty window with one tab per tmux session. All connected in seconds.</p>
+            </div>
+            <div class="feature-card">
+                <div class="icon">&#x1F504;</div>
+                <h3>Smart Attach</h3>
+                <p>Attaches to existing tmux sessions or creates new ones. Resume exactly where you left off.</p>
+            </div>
+            <div class="feature-card">
+                <div class="icon">&#x1F3A8;</div>
+                <h3>Catppuccin Theme</h3>
+                <p>Dark Catppuccin Mocha UI with pixel ghost branding. Matches Ghostty's aesthetic perfectly.</p>
+            </div>
+            <div class="feature-card">
+                <div class="icon">&#x1F512;</div>
+                <h3>No Permissions Needed</h3>
+                <p>Runs scripts inside Ghostty itself, avoiding macOS Accessibility permission headaches entirely.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="install">
+    <div class="container">
+        <h2>INSTALL</h2>
+        <div class="code-block">
+            <code>
+                <span class="comment"># Clone the repo</span><br>
+                <span class="cmd-prefix">$</span> git clone https://github.com/Linwei94/GhostConnect.git<br>
+                <span class="cmd-prefix">$</span> cd GhostConnect<br><br>
+                <span class="comment"># Build and install</span><br>
+                <span class="cmd-prefix">$</span> chmod +x build.sh<br>
+                <span class="cmd-prefix">$</span> ./build.sh<br><br>
+                <span class="comment"># Run it</span><br>
+                <span class="cmd-prefix">$</span> open ~/Applications/GhostConnect.app
+            </code>
+        </div>
+    </div>
+</section>
+
+<footer>
+    <div class="container">
+        Made for <a href="https://ghostty.org">Ghostty</a> &middot;
+        <a href="https://github.com/Linwei94/GhostConnect">GitHub</a> &middot;
+        MIT License
+    </div>
+</footer>
+
+<script>
+// Draw pixel ghost
+const ghostData = [
+    [0,0,0,0,1,1,1,1,0,0,0,0],
+    [0,0,0,1,1,1,1,1,1,0,0,0],
+    [0,0,1,1,1,1,1,1,1,1,0,0],
+    [0,1,1,1,1,1,1,1,1,1,1,0],
+    [0,1,1,2,2,1,1,2,2,1,1,0],
+    [0,1,1,3,2,1,1,3,2,1,1,0],
+    [1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,0,1,1,1,0,0,1,1,1,0,1],
+    [1,0,0,1,0,0,0,0,1,0,0,1],
+];
+const classes = ['n','p','e','d'];
+const ghostEl = document.getElementById('ghost');
+ghostData.forEach(row => {
+    row.forEach(v => {
+        const div = document.createElement('div');
+        div.className = classes[v];
+        ghostEl.appendChild(div);
+    });
+});
+
+// Mini ghost for mockup
+const miniData = [
+    [0,0,1,1,1,1,0,0],[0,1,1,1,1,1,1,0],[1,1,0,1,1,0,1,1],
+    [1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1],
+    [1,0,1,1,1,1,0,1],[1,0,0,1,1,0,0,1],
+];
+const miniEl = document.getElementById('mini-ghost');
+miniData.forEach(row => {
+    row.forEach(v => {
+        const div = document.createElement('div');
+        div.className = v === 1 ? 'p' : 'n';
+        miniEl.appendChild(div);
+    });
+});
+</script>
+
+</body>
+</html>
