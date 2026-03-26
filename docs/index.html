@@ -497,7 +497,7 @@
         </div>
 
         <h1>GHOST CONNECT</h1>
-        <p class="tagline">A macOS menu bar app for launching Ghostty + SSH + tmux sessions</p>
+        <p class="tagline">One click to open all your remote dev sessions — SSH into any server and attach named tmux sessions in Ghostty, instantly.</p>
 
         <div class="hero-buttons">
             <a href="https://github.com/Linwei94/GhostConnect#install" class="btn btn-primary">
@@ -581,6 +581,30 @@
     </div>
 </section>
 
+<section style="padding:40px 0 20px;">
+    <div class="container">
+        <div style="display:flex;gap:0;justify-content:center;flex-wrap:wrap;">
+            <div style="text-align:center;padding:20px 32px;flex:1;min-width:180px;max-width:240px;">
+                <div style="font-size:28px;margin-bottom:10px;">&#x2460;</div>
+                <div style="font-size:13px;color:var(--mauve);font-weight:bold;margin-bottom:6px;">Configure</div>
+                <div style="font-size:12px;color:var(--subtext0);line-height:1.5;">Pick a server from your SSH config and name the tmux sessions you want open.</div>
+            </div>
+            <div style="display:flex;align-items:center;color:var(--surface1);font-size:20px;padding-bottom:28px;">&#x2192;</div>
+            <div style="text-align:center;padding:20px 32px;flex:1;min-width:180px;max-width:240px;">
+                <div style="font-size:28px;margin-bottom:10px;">&#x2461;</div>
+                <div style="font-size:13px;color:var(--mauve);font-weight:bold;margin-bottom:6px;">Launch</div>
+                <div style="font-size:12px;color:var(--subtext0);line-height:1.5;">Click Launch. GhostConnect opens Ghostty and SSHs into the server with each session in its own tab.</div>
+            </div>
+            <div style="display:flex;align-items:center;color:var(--surface1);font-size:20px;padding-bottom:28px;">&#x2192;</div>
+            <div style="text-align:center;padding:20px 32px;flex:1;min-width:180px;max-width:240px;">
+                <div style="font-size:28px;margin-bottom:10px;">&#x2462;</div>
+                <div style="font-size:13px;color:var(--mauve);font-weight:bold;margin-bottom:6px;">Work</div>
+                <div style="font-size:12px;color:var(--subtext0);line-height:1.5;">Your tmux sessions are attached and waiting. Full workspace in under 3 seconds, every time.</div>
+            </div>
+        </div>
+    </div>
+</section>
+
 <section class="features">
     <div class="container">
         <h2>FEATURES</h2>
@@ -588,32 +612,32 @@
             <div class="feature-card">
                 <div class="icon">&#x1F47B;</div>
                 <h3>Menu Bar Native</h3>
-                <p>Lives as a pixel ghost in your macOS menu bar. Click to configure, launch, done. No Dock clutter.</p>
+                <p>Lives quietly as a pixel ghost in your macOS menu bar. Click to pick a server and sessions, hit Launch — no Dock icon, no extra windows.</p>
             </div>
             <div class="feature-card">
                 <div class="icon">&#x1F4CB;</div>
                 <h3>Auto SSH Config</h3>
-                <p>Reads your ~/.ssh/config automatically. All your servers in a dropdown, ready to go.</p>
+                <p>Reads <code style="font-size:11px;background:rgba(255,255,255,0.07);padding:1px 4px;border-radius:3px;">~/.ssh/config</code> automatically. Every host you've configured appears in the dropdown — nothing to set up manually.</p>
             </div>
             <div class="feature-card">
                 <div class="icon">&#x1F4BB;</div>
                 <h3>Multi-Tab Launch</h3>
-                <p>Opens a new Ghostty window with one tab per tmux session. All connected in seconds.</p>
+                <p>Opens a single Ghostty window with one tab per tmux session, all SSH'd in and ready. Go from zero to full workspace in under 3 seconds.</p>
             </div>
             <div class="feature-card">
                 <div class="icon">&#x1F504;</div>
                 <h3>Smart Attach</h3>
-                <p>Attaches to existing tmux sessions or creates new ones. Resume exactly where you left off.</p>
+                <p>Attaches to an existing tmux session if it exists, or creates a new one. Resume your running experiments, editors, and servers exactly where you left off.</p>
             </div>
             <div class="feature-card">
                 <div class="icon">&#x1F3A8;</div>
-                <h3>Catppuccin Theme</h3>
-                <p>Dark Catppuccin Mocha UI with pixel ghost branding. Matches Ghostty's aesthetic perfectly.</p>
+                <h3>Catppuccin Mocha UI</h3>
+                <p>Dark Catppuccin Mocha palette with a pixel ghost icon. Feels right at home alongside Ghostty's own aesthetic.</p>
             </div>
             <div class="feature-card">
                 <div class="icon">&#x1F512;</div>
-                <h3>No Permissions Needed</h3>
-                <p>Runs scripts inside Ghostty itself, avoiding macOS Accessibility permission headaches entirely.</p>
+                <h3>No Accessibility Permissions</h3>
+                <p>Runs AppleScript through Ghostty's own script runner — no macOS Accessibility access required, so it works out of the box.</p>
             </div>
         </div>
     </div>
