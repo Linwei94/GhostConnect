@@ -1,0 +1,6 @@
+# Build artifacts
+GhostConnect
+*.icns
+AppIcon.iconset/
+*.app/
+.DS_Store
