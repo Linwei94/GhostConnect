@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-SRC="$HOME/.config/ghostty/GhostConnect"
+SRC="$(cd "$(dirname "$0")" && pwd)"
 APP="$HOME/Applications/GhostConnect.app"
 
 echo ""
@@ -19,6 +19,7 @@ echo "[2/3] Compiling Swift..."
 xcrun swiftc \
     -framework SwiftUI \
     -framework Cocoa \
+    -framework ServiceManagement \
     -O \
     -o "$SRC/GhostConnect" \
     "$SRC/main.swift"
@@ -36,6 +37,9 @@ if [ -f "$SRC/AppIcon.icns" ]; then
     cp "$SRC/AppIcon.icns" "$APP/Contents/Resources/"
 fi
 
+# Code sign
+codesign -f -s - "$APP" 2>/dev/null
+
 # Cleanup build artifacts
 rm -f "$SRC/GhostConnect" "$SRC/AppIcon.icns"
 
@@ -43,6 +47,6 @@ echo ""
 echo "  Done! App installed at:"
 echo "  $APP"
 echo ""
-echo "  Drag it to your Dock, or run:"
+echo "  Run it with:"
 echo "  open \"$APP\""
 echo ""

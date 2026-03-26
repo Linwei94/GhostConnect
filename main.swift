@@ -1,5 +1,6 @@
 import Cocoa
 import SwiftUI
+import ServiceManagement
 
 // MARK: - Catppuccin Mocha Colors
 
@@ -17,8 +18,6 @@ extension Color {
     static let cGreen = Color(red: 166/255, green: 227/255, blue: 161/255)
     static let cRed = Color(red: 243/255, green: 139/255, blue: 168/255)
     static let cPeach = Color(red: 250/255, green: 179/255, blue: 135/255)
-    static let cYellow = Color(red: 249/255, green: 226/255, blue: 175/255)
-    static let cTeal = Color(red: 148/255, green: 226/255, blue: 213/255)
 }
 
 // MARK: - SSH Config Parser
@@ -37,6 +36,40 @@ func parseSSHConfig() -> [String] {
     return hosts
 }
 
+// MARK: - Menu Bar Ghost Icon
+
+func createMenuBarIcon() -> NSImage {
+    let ghost: [[Int]] = [
+        [0,0,0,0,1,1,1,1,0,0,0,0],
+        [0,0,0,1,1,1,1,1,1,0,0,0],
+        [0,0,1,1,1,1,1,1,1,1,0,0],
+        [0,1,1,1,1,1,1,1,1,1,1,0],
+        [0,1,1,0,0,1,1,0,0,1,1,0],
+        [0,1,1,0,0,1,1,0,0,1,1,0],
+        [1,1,1,1,1,1,1,1,1,1,1,1],
+        [1,1,1,1,1,1,1,1,1,1,1,1],
+        [1,1,1,1,1,1,1,1,1,1,1,1],
+        [1,1,1,1,1,1,1,1,1,1,1,1],
+        [1,1,1,1,1,1,1,1,1,1,1,1],
+        [1,0,1,1,1,0,0,1,1,1,0,1],
+        [1,0,0,1,0,0,0,0,1,0,0,1],
+    ]
+    let ps: CGFloat = 1.3
+    let imgS: CGFloat = 18
+    let ox = (imgS - 12 * ps) / 2, oy = (imgS - 13 * ps) / 2
+    let image = NSImage(size: NSSize(width: imgS, height: imgS), flipped: true) { _ in
+        NSColor.black.setFill()
+        for y in 0..<13 { for x in 0..<12 {
+            if ghost[y][x] == 1 {
+                NSRect(x: ox + CGFloat(x) * ps, y: oy + CGFloat(y) * ps, width: ps, height: ps).fill()
+            }
+        }}
+        return true
+    }
+    image.isTemplate = true
+    return image
+}
+
 // MARK: - Data Model
 
 struct SessionTab: Identifiable {
@@ -47,10 +80,15 @@ struct SessionTab: Identifiable {
 // MARK: - App State
 
 class AppState: ObservableObject {
+    static let shared = AppState()
+
     @Published var selectedServer: String = ""
     @Published var sessions: [SessionTab] = []
     @Published var servers: [String] = []
     @Published var isLaunching = false
+    @Published var launchError: String? = nil
+    @Published var autoStart: Bool = false
+    @Published var showServerList = false
 
     private let configPath = NSString("~/.config/ghostty/ghost-connect.json").expandingTildeInPath
 
@@ -63,24 +101,24 @@ class AppState: ObservableObject {
             SessionTab(name: "projects")
         ]
         loadConfig()
+        if #available(macOS 13.0, *) { autoStart = SMAppService.mainApp.status == .enabled }
     }
 
-    func addSession() {
-        sessions.append(SessionTab(name: "new-session"))
-    }
+    func addSession() { sessions.append(SessionTab(name: "new-session")) }
+    func removeSession(at i: Int) { guard sessions.count > 1 else { return }; sessions.remove(at: i) }
 
-    func removeSession(at index: Int) {
-        guard sessions.count > 1 else { return }
-        sessions.remove(at: index)
+    func toggleAutoStart() {
+        if #available(macOS 13.0, *) {
+            do {
+                if autoStart { try SMAppService.mainApp.unregister() }
+                else { try SMAppService.mainApp.register() }
+                autoStart = SMAppService.mainApp.status == .enabled
+            } catch {}
+        }
     }
-
-    // MARK: Persistence
 
     func saveConfig() {
-        let config: [String: Any] = [
-            "server": selectedServer,
-            "sessions": sessions.map { $0.name }
-        ]
+        let config: [String: Any] = ["server": selectedServer, "sessions": sessions.map { $0.name }]
         if let data = try? JSONSerialization.data(withJSONObject: config, options: .prettyPrinted) {
             FileManager.default.createFile(atPath: configPath, contents: data)
         }
@@ -89,359 +127,352 @@ class AppState: ObservableObject {
     func loadConfig() {
         guard let data = FileManager.default.contents(atPath: configPath),
               let config = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
-        if let server = config["server"] as? String, servers.contains(server) {
-            selectedServer = server
-        }
-        if let names = config["sessions"] as? [String], !names.isEmpty {
-            sessions = names.map { SessionTab(name: $0) }
-        }
+        if let s = config["server"] as? String, servers.contains(s) { selectedServer = s }
+        if let n = config["sessions"] as? [String], !n.isEmpty { sessions = n.map { SessionTab(name: $0) } }
     }
-
-    // MARK: Launch
 
     func launch() {
         guard !selectedServer.isEmpty, !sessions.isEmpty else { return }
-        isLaunching = true
-        saveConfig()
+        isLaunching = true; launchError = nil; saveConfig()
+        let server = selectedServer, names = sessions.map { $0.name }
 
-        let server = selectedServer
-        let names = sessions.map { $0.name }
+        var script = "#!/bin/bash\nOLD_CB=\"$(pbpaste 2>/dev/null)\"\n"
+        script += "printf '\\e]0;\(names[0])\\a'\n"
+
+        for i in 1..<names.count {
+            let name = names[i]
+            let cmd = "printf '\\e]0;\(name)\\a' && ssh \(server) -t 'tmux attach -t \(name) || tmux new -s \(name)'"
+            script += "\nosascript -e 'tell application \"System Events\" to tell process \"Ghostty\" to keystroke \"t\" using command down'\nsleep 1\n"
+            script += "echo -n '\(cmd.replacingOccurrences(of: "'", with: "'\\''"))' | pbcopy\n"
+            script += "osascript -e 'tell application \"System Events\" to tell process \"Ghostty\"' -e 'keystroke \"v\" using command down' -e 'end tell'\nsleep 0.3\n"
+            script += "osascript -e 'tell application \"System Events\" to tell process \"Ghostty\"' -e 'key code 36' -e 'end tell'\nsleep 0.5\n"
+        }
+
+        script += "\necho -n \"$OLD_CB\" | pbcopy 2>/dev/null\n"
+        if names.count > 1 {
+            script += "\nosascript -e 'tell application \"System Events\" to tell process \"Ghostty\"' -e 'keystroke \"1\" using command down' -e 'end tell'\nsleep 0.3\n"
+        }
+        script += "\nexec ssh \(server) -t 'tmux attach -t \(names[0]) || tmux new -s \(names[0])'\n"
 
         DispatchQueue.global(qos: .userInitiated).async { [self] in
-            let oldClip = shellOutput("/usr/bin/pbpaste", [])
-
-            osascript("tell application \"Ghostty\" to activate")
-            Thread.sleep(forTimeInterval: 0.5)
-
-            for (i, name) in names.enumerated() {
-                if i > 0 {
-                    osascript("tell application \"System Events\" to tell process \"Ghostty\" to keystroke \"t\" using command down")
-                    Thread.sleep(forTimeInterval: 0.5)
-                }
-
-                let cmd = "printf '\\e]1;\(name)\\a' && ssh \(server) -t 'tmux attach -t \(name) || tmux new -s \(name)'"
-                pbcopy(cmd)
-
-                osascript("""
-                tell application "System Events" to tell process "Ghostty"
-                    keystroke "v" using command down
-                    delay 0.2
-                    keystroke return
-                end tell
-                """)
-                Thread.sleep(forTimeInterval: 0.3)
-            }
-
-            pbcopy(oldClip)
-
+            let p = NSTemporaryDirectory() + "ghost-connect-launcher.sh"
+            do {
+                try script.write(toFile: p, atomically: true, encoding: .utf8)
+                let ch = Process(); ch.executableURL = URL(fileURLWithPath: "/bin/chmod"); ch.arguments = ["+x", p]; try ch.run(); ch.waitUntilExit()
+                let o = Process(); o.executableURL = URL(fileURLWithPath: "/usr/bin/open"); o.arguments = ["-na", "Ghostty.app", "--args", "-e", p]; try o.run(); o.waitUntilExit()
+            } catch { DispatchQueue.main.async { self.launchError = error.localizedDescription } }
             DispatchQueue.main.async { self.isLaunching = false }
         }
     }
+}
 
-    // MARK: Helpers
+// MARK: - Mini Ghost
 
-    private func osascript(_ script: String) {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        p.arguments = ["-e", script]
-        p.standardOutput = FileHandle.nullDevice
-        p.standardError = FileHandle.nullDevice
-        try? p.run()
-        p.waitUntilExit()
-    }
-
-    private func pbcopy(_ text: String) {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/pbcopy")
-        let pipe = Pipe()
-        p.standardInput = pipe
-        try? p.run()
-        pipe.fileHandleForWriting.write(text.data(using: .utf8) ?? Data())
-        pipe.fileHandleForWriting.closeFile()
-        p.waitUntilExit()
-    }
-
-    private func shellOutput(_ cmd: String, _ args: [String]) -> String {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: cmd)
-        p.arguments = args
-        let pipe = Pipe()
-        p.standardOutput = pipe
-        p.standardError = FileHandle.nullDevice
-        try? p.run()
-        p.waitUntilExit()
-        return String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+struct MiniGhost: View {
+    let pixels: [[Int]] = [
+        [0,0,1,1,1,1,0,0],[0,1,1,1,1,1,1,0],[1,1,0,1,1,0,1,1],
+        [1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1],[1,1,1,1,1,1,1,1],
+        [1,0,1,1,1,1,0,1],[1,0,0,1,1,0,0,1],
+    ]
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(0..<pixels.count, id: \.self) { r in
+                HStack(spacing: 0) {
+                    ForEach(0..<pixels[r].count, id: \.self) { c in
+                        Rectangle().fill(pixels[r][c] == 1 ? Color.cMauve : Color.clear).frame(width: 3, height: 3)
+                    }
+                }
+            }
+        }
     }
 }
 
-// MARK: - Pixel Ghost View
+// MARK: - Panel Content
 
-struct PixelGhostView: View {
-    let pixelSize: CGFloat
-    let color: Color
-    @Binding var animate: Bool
-
-    // 12x13 pixel ghost: 0=clear, 1=body, 2=eye white, 3=eye pupil
-    let pixels: [[Int]] = [
-        [0,0,0,0,1,1,1,1,0,0,0,0],
-        [0,0,0,1,1,1,1,1,1,0,0,0],
-        [0,0,1,1,1,1,1,1,1,1,0,0],
-        [0,1,1,1,1,1,1,1,1,1,1,0],
-        [0,1,1,2,2,1,1,2,2,1,1,0],
-        [0,1,1,3,2,1,1,3,2,1,1,0],
-        [1,1,1,1,1,1,1,1,1,1,1,1],
-        [1,1,1,1,1,1,1,1,1,1,1,1],
-        [1,1,1,1,1,1,1,1,1,1,1,1],
-        [1,1,1,1,1,1,1,1,1,1,1,1],
-        [1,1,1,1,1,1,1,1,1,1,1,1],
-        [1,0,1,1,1,0,0,1,1,1,0,1],
-        [1,0,0,1,0,0,0,0,1,0,0,1],
-    ]
+struct PanelView: View {
+    @ObservedObject var state = AppState.shared
+    var closeAction: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
-            ForEach(0..<pixels.count, id: \.self) { row in
-                HStack(spacing: 0) {
-                    ForEach(0..<pixels[row].count, id: \.self) { col in
-                        Rectangle()
-                            .fill(colorFor(pixels[row][col]))
-                            .frame(width: pixelSize, height: pixelSize)
+            // Header
+            HStack(spacing: 8) {
+                MiniGhost()
+                Text("Ghost Connect")
+                    .font(.custom("Menlo-Bold", size: 13))
+                    .foregroundColor(.cText)
+                Spacer()
+                Button(action: { state.toggleAutoStart() }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: state.autoStart ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 11))
+                            .foregroundColor(state.autoStart ? .cGreen : .cOverlay0)
+                        Text("Auto Start")
+                            .font(.custom("Menlo", size: 10))
+                            .foregroundColor(.cSubtext0)
                     }
-                }
-            }
-        }
-        .offset(y: animate ? -6 : 0)
-        .animation(
-            Animation.easeInOut(duration: 2.0).repeatForever(autoreverses: true),
-            value: animate
-        )
-    }
-
-    func colorFor(_ v: Int) -> Color {
-        switch v {
-        case 1: return color
-        case 2: return .white
-        case 3: return Color.cBase
-        default: return .clear
-        }
-    }
-}
-
-// MARK: - Scanline Overlay
-
-struct ScanlineOverlay: View {
-    var body: some View {
-        GeometryReader { geo in
-            VStack(spacing: 0) {
-                ForEach(0..<Int(geo.size.height / 2), id: \.self) { _ in
-                    Color.clear.frame(height: 1)
-                    Color.black.opacity(0.04).frame(height: 1)
-                }
-            }
-        }
-        .allowsHitTesting(false)
-    }
-}
-
-// MARK: - UI Components
-
-struct PixelButtonStyle: ButtonStyle {
-    let bg: Color
-    let fg: Color
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.custom("Menlo", size: 13).bold())
-            .foregroundColor(fg)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(RoundedRectangle(cornerRadius: 2).fill(configuration.isPressed ? bg.opacity(0.7) : bg))
-            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
-    }
-}
-
-struct SectionHeader: View {
-    let title: String
-    var body: some View {
-        HStack(spacing: 6) {
-            Text(">").foregroundColor(.cGreen)
-            Text(title).foregroundColor(.cText)
-        }
-        .font(.custom("Menlo", size: 12).bold())
-    }
-}
-
-struct SessionRow: View {
-    let index: Int
-    @Binding var session: SessionTab
-    let onDelete: () -> Void
-    let canDelete: Bool
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Text("TAB \(index + 1)")
-                .font(.custom("Menlo", size: 11))
-                .foregroundColor(.cOverlay0)
-                .frame(width: 48, alignment: .leading)
-
-            TextField("session", text: $session.name)
-                .textFieldStyle(.plain)
-                .font(.custom("Menlo", size: 13))
-                .foregroundColor(.cText)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Color.cBase)
-                        .overlay(RoundedRectangle(cornerRadius: 2).stroke(Color.cSurface2, lineWidth: 1))
-                )
-
-            if canDelete {
-                Button(action: onDelete) {
-                    Text("\u{00D7}")
-                        .font(.custom("Menlo", size: 16).bold())
-                        .foregroundColor(.cRed)
-                        .frame(width: 24, height: 24)
                 }
                 .buttonStyle(.plain)
-            } else {
-                Spacer().frame(width: 24)
             }
-        }
-    }
-}
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
+            .padding(.bottom, 8)
 
-// MARK: - Main Content View
+            // Server - inline clickable
+            HStack {
+                Text("SERVER")
+                    .font(.custom("Menlo-Bold", size: 9))
+                    .foregroundColor(.cOverlay0)
+                    .tracking(1.5)
+                Spacer()
+            }
+            .padding(.horizontal, 14)
+            .padding(.bottom, 4)
 
-struct ContentView: View {
-    @StateObject private var state = AppState()
-    @State private var ghostAnimate = false
-
-    var body: some View {
-        ZStack {
-            Color.cBase.ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                // Header
-                VStack(spacing: 8) {
-                    PixelGhostView(pixelSize: 5, color: .cMauve, animate: $ghostAnimate)
-                        .onAppear { ghostAnimate = true }
-
-                    Text("GHOST CONNECT")
-                        .font(.custom("Menlo", size: 20).bold())
-                        .foregroundColor(.cLavender)
-                        .tracking(4)
-
-                    Text("tmux session launcher")
-                        .font(.custom("Menlo", size: 10))
+            Button(action: { withAnimation(.easeOut(duration: 0.15)) { state.showServerList.toggle() } }) {
+                HStack {
+                    Text(state.selectedServer)
+                        .font(.custom("Menlo", size: 12))
+                        .foregroundColor(.cText)
+                    Spacer()
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 9))
                         .foregroundColor(.cOverlay0)
                 }
-                .padding(.top, 20)
-                .padding(.bottom, 16)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: 5).fill(Color.cSurface0))
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 14)
 
-                Rectangle().fill(Color.cSurface1).frame(height: 1).padding(.horizontal, 20)
-
-                // Server
-                VStack(alignment: .leading, spacing: 8) {
-                    SectionHeader(title: "SERVER")
-
-                    Picker("", selection: $state.selectedServer) {
+            if state.showServerList {
+                ScrollView {
+                    VStack(spacing: 0) {
                         ForEach(state.servers, id: \.self) { server in
-                            Text(server).font(.custom("Menlo", size: 13)).tag(server)
+                            Button(action: {
+                                state.selectedServer = server
+                                withAnimation(.easeOut(duration: 0.15)) { state.showServerList = false }
+                            }) {
+                                HStack {
+                                    Text(server)
+                                        .font(.custom("Menlo", size: 11))
+                                        .foregroundColor(server == state.selectedServer ? .cMauve : .cSubtext0)
+                                    Spacer()
+                                    if server == state.selectedServer {
+                                        Image(systemName: "checkmark")
+                                            .font(.system(size: 9, weight: .bold))
+                                            .foregroundColor(.cMauve)
+                                    }
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 2)
-                    .background(RoundedRectangle(cornerRadius: 2).fill(Color.cSurface0))
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 16)
+                .frame(maxHeight: 120)
+                .background(RoundedRectangle(cornerRadius: 5).fill(Color.cSurface0))
+                .padding(.horizontal, 14)
+                .padding(.top, 2)
+            }
 
-                // Sessions
-                VStack(alignment: .leading, spacing: 8) {
-                    SectionHeader(title: "SESSIONS")
+            // Sessions
+            HStack {
+                Text("SESSIONS")
+                    .font(.custom("Menlo-Bold", size: 9))
+                    .foregroundColor(.cOverlay0)
+                    .tracking(1.5)
+                Spacer()
+                Button(action: { state.addSession() }) {
+                    Image(systemName: "plus.circle")
+                        .font(.system(size: 12))
+                        .foregroundColor(.cLavender)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
+            .padding(.bottom, 4)
 
-                    VStack(spacing: 6) {
-                        ForEach(Array(state.sessions.enumerated()), id: \.element.id) { index, _ in
-                            SessionRow(
-                                index: index,
-                                session: $state.sessions[index],
-                                onDelete: { state.removeSession(at: index) },
-                                canDelete: state.sessions.count > 1
-                            )
+            VStack(spacing: 3) {
+                ForEach(Array(state.sessions.enumerated()), id: \.element.id) { i, _ in
+                    HStack(spacing: 6) {
+                        Text("\(i + 1)")
+                            .font(.custom("Menlo", size: 9))
+                            .foregroundColor(.cOverlay0)
+                            .frame(width: 12)
+
+                        TextField("session", text: $state.sessions[i].name)
+                            .textFieldStyle(.plain)
+                            .font(.custom("Menlo", size: 12))
+                            .foregroundColor(.cText)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(RoundedRectangle(cornerRadius: 5).fill(Color.cSurface0))
+
+                        if state.sessions.count > 1 {
+                            Button(action: { state.removeSession(at: i) }) {
+                                Image(systemName: "minus.circle")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.cOverlay0)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
-                    .padding(12)
-                    .background(RoundedRectangle(cornerRadius: 2).fill(Color.cSurface0))
-
-                    Button(action: { state.addSession() }) {
-                        HStack(spacing: 4) { Text("+"); Text("ADD TAB") }
-                    }
-                    .buttonStyle(PixelButtonStyle(bg: .cSurface1, fg: .cSubtext0))
+                    .padding(.horizontal, 14)
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 16)
+            }
+
+            if let err = state.launchError {
+                Text(err).font(.custom("Menlo", size: 9)).foregroundColor(.cRed).lineLimit(2)
+                    .padding(.horizontal, 14).padding(.top, 4)
+            }
+
+            Spacer(minLength: 8)
+
+            // Bottom
+            HStack {
+                Button(action: { closeAction(); state.launch() }) {
+                    HStack(spacing: 5) {
+                        if state.isLaunching {
+                            ProgressView().scaleEffect(0.5).frame(width: 10, height: 10)
+                        } else {
+                            Image(systemName: "play.fill").font(.system(size: 9))
+                        }
+                        Text(state.isLaunching ? "Launching..." : "Launch")
+                            .font(.custom("Menlo-Bold", size: 11))
+                    }
+                    .foregroundColor(.cBase)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 5).fill(Color.cGreen))
+                }
+                .buttonStyle(.plain)
+                .disabled(state.isLaunching)
 
                 Spacer()
 
-                // Launch
-                Button(action: { state.launch() }) {
-                    HStack(spacing: 8) {
-                        if state.isLaunching {
-                            ProgressView()
-                                .scaleEffect(0.7)
-                                .progressViewStyle(CircularProgressViewStyle(tint: .cBase))
-                        }
-                        Text(state.isLaunching ? "CONNECTING..." : "\u{25B6}  LAUNCH")
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+                Button(action: { NSApp.terminate(nil) }) {
+                    Text("Quit").font(.custom("Menlo", size: 10)).foregroundColor(.cOverlay0)
                 }
-                .buttonStyle(PixelButtonStyle(bg: state.isLaunching ? .cSurface2 : .cGreen, fg: .cBase))
-                .disabled(state.isLaunching)
-                .padding(.horizontal, 24)
-                .padding(.bottom, 24)
+                .buttonStyle(.plain)
             }
-
-            ScanlineOverlay().ignoresSafeArea()
+            .padding(.horizontal, 14)
+            .padding(.bottom, 10)
+            .padding(.top, 6)
         }
-        .frame(width: 420, height: 520)
+        .frame(width: 300)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(Color.cBase)
+    }
+}
+
+// MARK: - Borderless Panel
+
+class StatusPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+
+    init(contentRect: NSRect) {
+        super.init(
+            contentRect: contentRect,
+            styleMask: [.nonactivatingPanel, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        isFloatingPanel = true
+        level = .statusBar
+        hasShadow = true
+        backgroundColor = .clear
+        isOpaque = false
+        titleVisibility = .hidden
+        titlebarAppearsTransparent = true
+        isMovableByWindowBackground = false
+        appearance = NSAppearance(named: .darkAqua)
+
+        // Round corners
+        contentView?.wantsLayer = true
+        contentView?.layer?.cornerRadius = 10
+        contentView?.layer?.masksToBounds = true
     }
 }
 
 // MARK: - App Delegate
 
 class AppDelegate: NSObject, NSApplicationDelegate {
-    var window: NSWindow!
+    var statusItem: NSStatusItem!
+    var panel: StatusPanel!
+    var monitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 520),
-            styleMask: [.titled, .closable, .miniaturizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "Ghost Connect"
-        window.center()
-        window.contentView = NSHostingView(rootView: ContentView())
-        window.makeKeyAndOrderFront(nil)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .darkAqua)
-        window.backgroundColor = NSColor(red: 30/255, green: 30/255, blue: 46/255, alpha: 1)
-        window.titlebarAppearsTransparent = true
+        setupStatusBar()
+        setupPanel()
+
+        if #available(macOS 13.0, *) {
+            if SMAppService.mainApp.status != .enabled {
+                try? SMAppService.mainApp.register()
+                AppState.shared.autoStart = true
+            }
+        }
+
+        // Click outside to close
+        monitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            self?.panel.orderOut(nil)
+        }
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        return true
+    func setupStatusBar() {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        if let button = statusItem.button {
+            button.image = createMenuBarIcon()
+            button.action = #selector(togglePanel)
+            button.target = self
+        }
+    }
+
+    func setupPanel() {
+        panel = StatusPanel(contentRect: NSRect(x: 0, y: 0, width: 300, height: 100))
+
+        let hostView = NSHostingView(rootView: PanelView(closeAction: { [weak self] in
+            self?.panel.orderOut(nil)
+        }))
+        hostView.wantsLayer = true
+        hostView.layer?.cornerRadius = 10
+        hostView.layer?.masksToBounds = true
+        panel.contentView = hostView
+    }
+
+    @objc func togglePanel() {
+        if panel.isVisible {
+            panel.orderOut(nil)
+            return
+        }
+
+        // Position directly below the status item
+        guard let button = statusItem.button, let btnWindow = button.window else { return }
+        let btnRect = button.convert(button.bounds, to: nil)
+        let screenRect = btnWindow.convertToScreen(btnRect)
+
+        // Size the panel to fit content
+        panel.contentView?.layoutSubtreeIfNeeded()
+        let contentSize = panel.contentView?.fittingSize ?? NSSize(width: 300, height: 400)
+        let panelW = contentSize.width
+        let panelH = contentSize.height
+
+        let x = screenRect.minX
+        let y = screenRect.minY - panelH - 4  // 4px gap from menu bar
+
+        panel.setFrame(NSRect(x: x, y: y, width: panelW, height: panelH), display: true)
+        panel.makeKeyAndOrderFront(nil)
     }
 }
 
 // MARK: - Entry Point
 
 let app = NSApplication.shared
-app.setActivationPolicy(.regular)
+app.setActivationPolicy(.accessory)
 let delegate = AppDelegate()
 app.delegate = delegate
-app.activate(ignoringOtherApps: true)
 app.run()
