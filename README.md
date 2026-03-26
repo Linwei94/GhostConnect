@@ -32,7 +32,7 @@ Click the ghost icon in your menu bar → pick a server → configure your tmux 
 ## Install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/GhostConnect.git
+git clone https://github.com/Linwei94/GhostConnect.git
 cd GhostConnect
 chmod +x build.sh
 ./build.sh
